@@ -13,6 +13,7 @@ Original file is located at
 import yfinance as yf
 import numpy as np
 import pandas as pd
+import tensorflow
 import time
 
 # Import all algorithm implementations
@@ -33,6 +34,26 @@ SCENARIOS = [
     ('Base Case: 5Y - 5 Stocks', ['AAPL', 'AMZN', 'GOOGL', 'JNJ', 'JPM'], '2019-01-01')
 ]
 
+import threading
+
+class TimeoutThread(threading.Thread):
+    def __init__(self, target, args=()):
+        super().__init__()
+        self.target = target
+        self.args = args
+        self.result = None
+        self.exception = None
+
+    def run(self):
+        try:
+            self.result = self.target(*self.args)
+        except Exception as e:
+            self.exception = e
+
+    def get_result(self):
+        if self.exception:
+            raise self.exception
+        return self.result
 # ======================== BENCHMARK CODE ========================
 def evaluate_portfolio(weights, returns, risk_free_rate):
     """Evaluate portfolio performance metrics"""
@@ -73,15 +94,15 @@ def run_benchmark():
 
 
 # ======================== SCENARIO RUNNER ========================
-def run_all_algorithms():
+def run_all_algorithms(label, tickers, start_date):
     all_results = []
 
-    # Force only Base Case scenario
-    label, tickers, start_date = ('Base Case: 5Y - 5 Stocks',
-                                  ['AAPL', 'AMZN', 'GOOGL', 'JNJ', 'JPM'],
-                                  '2019-01-01')
+    # Override safeguard: allow only Base Case execution
+    if "Time Comparison" in label or "Stock Comparison" in label or "Base Case" not in label:
+        print(f"\n[OVERRIDDEN] Scenario '{label}' is not the Base Case. Skipping execution.")
+        return pd.DataFrame()
 
-    print(f"\n=== Running ONLY Base Case scenario ===")
+    print(f"\n=== Running Base Case scenario: {label} ===")
 
     # Benchmark
     benchmark_result = run_benchmark()
@@ -115,11 +136,49 @@ def run_all_algorithms():
 
 # ======================== RESULT DISPLAY ========================
 def display_results(results_df):
+    if results_df.empty:
+        print("\n[INFO] No results to display (comparison case was skipped).")
+        return
+
     print("\n\n=== Portfolio Optimization Results (Base Case) vs Benchmark ===")
     print(results_df[['Algorithm', 'Mean Return', 'Volatility', 'Sharpe Ratio', 'Max Drawdown', 'Computation Time (s)']]
           .round(4).to_string(index=False))
 
 # ======================== MAIN EXECUTION ========================
+# ======================== MAIN EXECUTION ========================
 if __name__ == "__main__":
-    results = run_all_algorithms()
-    display_results(results)
+    all_final_results = []
+
+    for label, tickers, start_date in SCENARIOS:
+        # Always skip non-base case scenarios
+        if "Time Comparison" in label or "Stock Comparison" in label or "Base Case" not in label:
+            print(f"\n[OVERRIDDEN] Scenario '{label}' is not the Base Case. Skipping execution.")
+            continue
+
+        # Timeout execution of all algorithms in the Base Case
+        execution_thread = TimeoutThread(target=run_all_algorithms, args=(label, tickers, start_date))
+        execution_thread.start()
+        execution_thread.join(timeout=4800)  # ⏱️ 1 hour 20 mins = 4800 seconds
+
+        if execution_thread.is_alive():
+            print(f"\n[TIMEOUT] Full algorithm execution for scenario '{label}' exceeded 1 hour 20 minutes. Skipping results.")
+        else:
+            try:
+                results = execution_thread.get_result()
+                display_results(results)
+                all_final_results.append(results)
+            except Exception as e:
+                print(f"\n[ERROR] Execution failed for scenario '{label}': {e}")
+
+    # Combine all results if any
+    if all_final_results:
+        combined_df = pd.concat(all_final_results, ignore_index=True)
+
+        # ✅ Final comparison table of all algorithms (including benchmark)
+        print("\n\n=== Final Comparison Table: All Algorithms vs Benchmark ===")
+        print(combined_df[['Algorithm', 'Scenario', 'Mean Return', 'Variance', 'Volatility',
+                           'Sharpe Ratio', 'Max Drawdown', 'Computation Time (s)']]
+              .round(4)
+              .to_string(index=False))
+    else:
+        print("\n[INFO] No algorithms completed execution.")

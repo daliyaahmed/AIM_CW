@@ -18,6 +18,7 @@ from collections import deque
 import tensorflow as tf
 from tensorflow.keras import layers
 
+
 # ==== CONFIGURATION ====
 TICKERS = ['AAPL', 'AMZN', 'GOOGL', 'JNJ', 'JPM', 'MSFT', 'TSLA', 'NVDA', 'XOM', 'PG']
 TRAIN_RATIO = 0.7
